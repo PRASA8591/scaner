@@ -1,24 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Number Scanner</title>
+<meta charset="UTF-8">
+<title>Number Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #f5f5f5;
+}
+video {
+  width: 100%;
+  max-width: 400px;
+  border: 2px solid #333;
+  border-radius: 8px;
+}
+button {
+  padding: 10px 15px;
+  margin: 5px;
+  font-size: 16px;
+}
+table {
+  width: 90%;
+  margin: auto;
+  border-collapse: collapse;
+  background: #fff;
+}
+th, td {
+  border: 1px solid #333;
+  padding: 8px;
+}
+</style>
 </head>
+
 <body>
 
-<h2>Camera Number Scanner</h2>
+<h2>📷 Back Camera Number Scanner</h2>
 
-<video id="video" autoplay width="300"></video>
+<video id="video" autoplay playsinline></video>
+
 <br>
-<button onclick="capture()">Scan Number</button>
+<button onclick="scanNumber()">Scan Number</button>
 <button onclick="downloadExcel()">Download Excel</button>
 
-<table border="1" id="table">
-  <tr><th>Detected Number</th></tr>
+<h3>Detected Numbers</h3>
+<table id="table">
+  <tr>
+    <th>#</th>
+    <th>Number</th>
+  </tr>
 </table>
 
+<!-- OCR -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+<!-- Excel -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-<script src="script.js"></script>
+
+<script>
+const video = document.getElementById("video");
+const table = document.getElementById("table");
+let results = [];
+let count = 1;
+
+// Start BACK camera
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: { exact: "environment" } }
+}).then(stream => {
+  video.srcObject = stream;
+}).catch(() => {
+  // fallback
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" }
+  }).then(stream => video.srcObject = stream);
+});
+
+// Scan function
+function scanNumber() {
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0);
+
+  Tesseract.recognize(canvas, "eng", {
+    tessedit_char_whitelist: "0123456789"
+  }).then(({ data: { text } }) => {
+    let number = text.replace(/\D/g, "");
+
+    if (number) {
+      results.push({ No: count, Number: number });
+      let row = table.insertRow();
+      row.insertCell(0).innerText = count++;
+      row.insertCell(1).innerText = number;
+    } else {
+      alert("No number detected. Try again.");
+    }
+  });
+}
+
+// Download Excel
+function downloadExcel() {
+  if (results.length === 0) {
+    alert("No data to download");
+    return;
+  }
+
+  let ws = XLSX.utils.json_to_sheet(results);
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Numbers");
+  XLSX.writeFile(wb, "scanned_numbers.xlsx");
+}
+</script>
 
 </body>
 </html>
