@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>GRN Document Scanner</title>
+<title>GRN Auto Scanner</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -13,13 +13,24 @@ body {
 }
 video {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   border: 2px solid #333;
+  border-radius: 8px;
 }
 button {
-  padding: 10px 15px;
-  margin: 5px;
+  padding: 10px 18px;
+  margin: 6px;
   font-size: 16px;
+}
+#status {
+  font-size: 16px;
+  margin: 10px;
+  color: green;
+  font-weight: bold;
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  50% { opacity: 0.4; }
 }
 table {
   width: 95%;
@@ -30,25 +41,24 @@ table {
 th, td {
   border: 1px solid #333;
   padding: 6px;
-  font-size: 14px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>📄 GRN Document Scanner</h2>
+<h2>📄 GRN Document Auto Scanner</h2>
 
 <video id="video" autoplay playsinline></video><br>
 
-<button onclick="scanDocument()">Scan Document</button>
+<button onclick="startScan()">Scan Document</button>
 <button onclick="downloadExcel()">Download Excel</button>
 
-<h3>Scanned Data</h3>
+<div id="status"></div>
+
 <table id="table">
 <tr>
   <th>#</th>
-  <th>Supplier Name</th>
   <th>GRN No</th>
   <th>GRN Invoice No</th>
 </tr>
@@ -59,6 +69,7 @@ th, td {
 
 <script>
 const video = document.getElementById("video");
+const statusText = document.getElementById("status");
 const table = document.getElementById("table");
 
 let results = [];
@@ -70,62 +81,81 @@ navigator.mediaDevices.getUserMedia({
 }).then(stream => video.srcObject = stream)
 .catch(() => {
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
-  }).then(stream => video.srcObject = stream);
+    video: { facingMode: "environment" } }
+  ).then(stream => video.srcObject = stream);
 });
 
-function scanDocument() {
+function startScan() {
+  statusText.innerText = "🔍 Scanning document...";
+  
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
 
   Tesseract.recognize(canvas, "eng").then(({ data: { text } }) => {
-
     const cleanText = text.replace(/\r/g, "").toUpperCase();
 
-    // 🔍 Extract Supplier Name
-    let supplierMatch = cleanText.match(/SUPPLIER NAME\s*:\s*(.+)/);
-    let supplier = supplierMatch ? supplierMatch[1].split("\n")[0].trim() : "";
+    // ✅ GRN No (must start with GRN)
+    const grnMatch = cleanText.match(/GRN[0-9]+/);
 
-    // 🔍 Extract GRN No
-    let grnMatch = cleanText.match(/GRN NO\s*:\s*(GRN[0-9]+)/);
-    let grn = grnMatch ? grnMatch[1] : "";
+    // ✅ Invoice No (ANY format)
+    const invoiceMatch = cleanText.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
 
-    // 🔍 Extract GRN Invoice No
-    let invoiceMatch = cleanText.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
-    let invoice = invoiceMatch ? invoiceMatch[1] : "";
-
-    if (!supplier && !grn && !invoice) {
-      alert("Required fields not detected. Try again.");
+    if (!grnMatch || !invoiceMatch) {
+      statusText.innerText = "❌ GRN or Invoice not detected. Try again.";
       return;
     }
 
-    results.push({
-      No: count,
-      Supplier: supplier,
-      GRN: grn,
-      Invoice: invoice
-    });
+    const grn = grnMatch[0];
+    const invoice = invoiceMatch[1];
 
-    let row = table.insertRow();
-    row.insertCell(0).innerText = count++;
-    row.insertCell(1).innerText = supplier;
-    row.insertCell(2).innerText = grn;
-    row.insertCell(3).innerText = invoice;
+    startCountdown(grn, invoice);
   });
 }
 
+// ⏳ 5 second delay before save
+function startCountdown(grn, invoice) {
+  let seconds = 5;
+  statusText.innerText = `⏳ Saving in ${seconds} seconds...`;
+
+  const timer = setInterval(() => {
+    seconds--;
+    statusText.innerText = `⏳ Saving in ${seconds} seconds...`;
+
+    if (seconds === 0) {
+      clearInterval(timer);
+      saveData(grn, invoice);
+    }
+  }, 1000);
+}
+
+// 💾 Save row
+function saveData(grn, invoice) {
+  results.push({
+    No: count,
+    GRN: grn,
+    Invoice: invoice
+  });
+
+  let row = table.insertRow();
+  row.insertCell(0).innerText = count++;
+  row.insertCell(1).innerText = grn;
+  row.insertCell(2).innerText = invoice;
+
+  statusText.innerText = "✅ Saved successfully. Ready for next scan.";
+}
+
+// 📥 Excel export
 function downloadExcel() {
   if (results.length === 0) {
-    alert("No data available");
+    alert("No data to download");
     return;
   }
-
   let ws = XLSX.utils.json_to_sheet(results);
   let wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
-  XLSX.writeFile(wb, "grn_data.xlsx");
+  XLSX.writeFile(wb, "GRN_Scans.xlsx");
 }
 </script>
 
