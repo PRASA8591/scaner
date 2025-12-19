@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>GRN Auto Scanner</title>
+<title>Fast GRN Scanner</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -23,17 +23,12 @@ button {
   font-size: 16px;
 }
 #status {
-  font-size: 16px;
-  margin: 10px;
-  color: green;
+  font-size: 15px;
+  margin: 8px;
   font-weight: bold;
-  animation: blink 1s infinite;
-}
-@keyframes blink {
-  50% { opacity: 0.4; }
 }
 table {
-  width: 95%;
+  width: 98%;
   margin: auto;
   border-collapse: collapse;
   background: #fff;
@@ -41,17 +36,18 @@ table {
 th, td {
   border: 1px solid #333;
   padding: 6px;
+  font-size: 13px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>📄 GRN Document Auto Scanner</h2>
+<h2>⚡ Fast GRN Document Scanner</h2>
 
 <video id="video" autoplay playsinline></video><br>
 
-<button onclick="startScan()">Scan Document</button>
+<button onclick="scan()">Scan</button>
 <button onclick="downloadExcel()">Download Excel</button>
 
 <div id="status"></div>
@@ -61,6 +57,7 @@ th, td {
   <th>#</th>
   <th>GRN No</th>
   <th>GRN Invoice No</th>
+  <th>Scan Date & Time</th>
 </tr>
 </table>
 
@@ -85,77 +82,70 @@ navigator.mediaDevices.getUserMedia({
   ).then(stream => video.srcObject = stream);
 });
 
-function startScan() {
-  statusText.innerText = "🔍 Scanning document...";
-  
+function scan() {
+  statusText.innerText = "⚡ Scanning...";
+
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
 
-  Tesseract.recognize(canvas, "eng").then(({ data: { text } }) => {
-    const cleanText = text.replace(/\r/g, "").toUpperCase();
+  Tesseract.recognize(
+    canvas,
+    "eng",
+    {
+      tessedit_char_whitelist: "GRN0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:-",
+      logger: () => {} // disable logs → faster
+    }
+  ).then(({ data: { text } }) => {
 
-    // ✅ GRN No (must start with GRN)
-    const grnMatch = cleanText.match(/GRN[0-9]+/);
+    const clean = text.toUpperCase().replace(/\s+/g, " ");
 
-    // ✅ Invoice No (ANY format)
-    const invoiceMatch = cleanText.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
+    // ✅ Get ALL GRN values, then choose longest (full one)
+    const grnMatches = clean.match(/GRN[0-9]{4,}/g);
+    const grn = grnMatches ? grnMatches.sort((a,b)=>b.length-a.length)[0] : "";
 
-    if (!grnMatch || !invoiceMatch) {
-      statusText.innerText = "❌ GRN or Invoice not detected. Try again.";
+    // ✅ Invoice No (ANY FORMAT)
+    const invoiceMatch = clean.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
+    const invoice = invoiceMatch ? invoiceMatch[1] : "";
+
+    if (!grn || !invoice) {
+      statusText.innerText = "❌ Full GRN or Invoice not detected. Try again.";
       return;
     }
 
-    const grn = grnMatch[0];
-    const invoice = invoiceMatch[1];
-
-    startCountdown(grn, invoice);
+    save(grn, invoice);
   });
 }
 
-// ⏳ 5 second delay before save
-function startCountdown(grn, invoice) {
-  let seconds = 5;
-  statusText.innerText = `⏳ Saving in ${seconds} seconds...`;
+function save(grn, invoice) {
+  const now = new Date().toLocaleString();
 
-  const timer = setInterval(() => {
-    seconds--;
-    statusText.innerText = `⏳ Saving in ${seconds} seconds...`;
-
-    if (seconds === 0) {
-      clearInterval(timer);
-      saveData(grn, invoice);
-    }
-  }, 1000);
-}
-
-// 💾 Save row
-function saveData(grn, invoice) {
   results.push({
     No: count,
     GRN: grn,
-    Invoice: invoice
+    Invoice: invoice,
+    ScanDateTime: now
   });
 
   let row = table.insertRow();
   row.insertCell(0).innerText = count++;
   row.insertCell(1).innerText = grn;
   row.insertCell(2).innerText = invoice;
+  row.insertCell(3).innerText = now;
 
-  statusText.innerText = "✅ Saved successfully. Ready for next scan.";
+  statusText.innerText = "✅ Saved (Fast scan ready)";
 }
 
-// 📥 Excel export
 function downloadExcel() {
   if (results.length === 0) {
-    alert("No data to download");
+    alert("No data");
     return;
   }
   let ws = XLSX.utils.json_to_sheet(results);
   let wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
-  XLSX.writeFile(wb, "GRN_Scans.xlsx");
+  XLSX.utils.book_append_sheet(wb, ws, "GRN Scans");
+  XLSX.writeFile(wb, "GRN_Fast_Scans.xlsx");
 }
 </script>
 
