@@ -2,20 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>GRN Number Scanner</title>
+<title>GRN Document Scanner</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body {
   font-family: Arial, sans-serif;
-  text-align: center;
   background: #f2f2f2;
+  text-align: center;
 }
 video {
   width: 100%;
   max-width: 400px;
   border: 2px solid #333;
-  border-radius: 8px;
 }
 button {
   padding: 10px 15px;
@@ -23,40 +22,39 @@ button {
   font-size: 16px;
 }
 table {
-  width: 90%;
+  width: 95%;
   margin: auto;
   border-collapse: collapse;
   background: #fff;
 }
 th, td {
   border: 1px solid #333;
-  padding: 8px;
+  padding: 6px;
+  font-size: 14px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>📷 GRN Number Scanner (Back Camera)</h2>
+<h2>📄 GRN Document Scanner</h2>
 
-<video id="video" autoplay playsinline></video>
+<video id="video" autoplay playsinline></video><br>
 
-<br>
-<button onclick="scanGRN()">Scan GRN</button>
+<button onclick="scanDocument()">Scan Document</button>
 <button onclick="downloadExcel()">Download Excel</button>
 
-<h3>Detected GRN Numbers</h3>
+<h3>Scanned Data</h3>
 <table id="table">
-  <tr>
-    <th>#</th>
-    <th>GRN Number</th>
-  </tr>
+<tr>
+  <th>#</th>
+  <th>Supplier Name</th>
+  <th>GRN No</th>
+  <th>GRN Invoice No</th>
+</tr>
 </table>
 
-<!-- OCR -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-
-<!-- Excel -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <script>
@@ -66,62 +64,68 @@ const table = document.getElementById("table");
 let results = [];
 let count = 1;
 
-// Start BACK camera
+// Back camera
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: { exact: "environment" } }
-}).then(stream => {
-  video.srcObject = stream;
-}).catch(() => {
+}).then(stream => video.srcObject = stream)
+.catch(() => {
   navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
   }).then(stream => video.srcObject = stream);
 });
 
-// Scan only GRN numbers
-function scanGRN() {
+function scanDocument() {
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
 
-  Tesseract.recognize(canvas, "eng", {
-    tessedit_char_whitelist: "GRNgrn0123456789- "
-  }).then(({ data: { text } }) => {
+  Tesseract.recognize(canvas, "eng").then(({ data: { text } }) => {
 
-    // Normalize text
-    text = text.toUpperCase().replace(/\s+/g, "");
+    const cleanText = text.replace(/\r/g, "").toUpperCase();
 
-    // Match GRN + numbers
-    const match = text.match(/GRN[-]?\d+/);
+    // 🔍 Extract Supplier Name
+    let supplierMatch = cleanText.match(/SUPPLIER NAME\s*:\s*(.+)/);
+    let supplier = supplierMatch ? supplierMatch[1].split("\n")[0].trim() : "";
 
-    if (match) {
-      const grn = match[0];
+    // 🔍 Extract GRN No
+    let grnMatch = cleanText.match(/GRN NO\s*:\s*(GRN[0-9]+)/);
+    let grn = grnMatch ? grnMatch[1] : "";
 
-      // Avoid duplicates
-      if (!results.find(r => r.GRN === grn)) {
-        results.push({ No: count, GRN: grn });
+    // 🔍 Extract GRN Invoice No
+    let invoiceMatch = cleanText.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
+    let invoice = invoiceMatch ? invoiceMatch[1] : "";
 
-        let row = table.insertRow();
-        row.insertCell(0).innerText = count++;
-        row.insertCell(1).innerText = grn;
-      }
-    } else {
-      alert("No valid GRN found");
+    if (!supplier && !grn && !invoice) {
+      alert("Required fields not detected. Try again.");
+      return;
     }
+
+    results.push({
+      No: count,
+      Supplier: supplier,
+      GRN: grn,
+      Invoice: invoice
+    });
+
+    let row = table.insertRow();
+    row.insertCell(0).innerText = count++;
+    row.insertCell(1).innerText = supplier;
+    row.insertCell(2).innerText = grn;
+    row.insertCell(3).innerText = invoice;
   });
 }
 
-// Download Excel
 function downloadExcel() {
   if (results.length === 0) {
-    alert("No GRN data to download");
+    alert("No data available");
     return;
   }
 
   let ws = XLSX.utils.json_to_sheet(results);
   let wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "GRN Numbers");
-  XLSX.writeFile(wb, "GRN_numbers.xlsx");
+  XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
+  XLSX.writeFile(wb, "grn_data.xlsx");
 }
 </script>
 
