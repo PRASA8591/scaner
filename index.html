@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Fast GRN Scanner</title>
+<title>GRN Camera Scanner</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -11,7 +11,7 @@ body {
   background: #f2f2f2;
   text-align: center;
 }
-video {
+video, canvas {
   width: 100%;
   max-width: 420px;
   border: 2px solid #333;
@@ -23,9 +23,8 @@ button {
   font-size: 16px;
 }
 #status {
-  font-size: 15px;
-  margin: 8px;
   font-weight: bold;
+  margin: 8px;
 }
 table {
   width: 98%;
@@ -38,17 +37,22 @@ th, td {
   padding: 6px;
   font-size: 13px;
 }
+.hidden {
+  display: none;
+}
 </style>
 </head>
 
 <body>
 
-<h2>⚡ Fast GRN Document Scanner</h2>
+<h2>📸 GRN Document Camera Scanner</h2>
 
-<video id="video" autoplay playsinline></video><br>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" class="hidden"></canvas>
 
-<button onclick="scan()">Scan</button>
-<button onclick="downloadExcel()">Download Excel</button>
+<br>
+<button onclick="captureImage()">📸 Capture</button>
+<button onclick="downloadExcel()">⬇️ Download Excel</button>
 
 <div id="status"></div>
 
@@ -66,59 +70,67 @@ th, td {
 
 <script>
 const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
 const statusText = document.getElementById("status");
 const table = document.getElementById("table");
 
 let results = [];
 let count = 1;
 
-// Back camera
+// 🎥 Start BACK camera
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: { exact: "environment" } }
 }).then(stream => video.srcObject = stream)
 .catch(() => {
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" } }
-  ).then(stream => video.srcObject = stream);
+    video: { facingMode: "environment" }
+  }).then(stream => video.srcObject = stream);
 });
 
-function scan() {
-  statusText.innerText = "⚡ Scanning...";
+// 📸 Capture image
+function captureImage() {
+  statusText.innerText = "📸 Image captured, scanning...";
 
-  const canvas = document.createElement("canvas");
+  canvas.classList.remove("hidden");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
 
+  scanImage();
+}
+
+// 🔍 OCR Scan captured image
+function scanImage() {
   Tesseract.recognize(
     canvas,
     "eng",
     {
       tessedit_char_whitelist: "GRN0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:-",
-      logger: () => {} // disable logs → faster
+      logger: () => {} // faster
     }
   ).then(({ data: { text } }) => {
 
     const clean = text.toUpperCase().replace(/\s+/g, " ");
 
-    // ✅ Get ALL GRN values, then choose longest (full one)
+    // FULL GRN (longest match)
     const grnMatches = clean.match(/GRN[0-9]{4,}/g);
     const grn = grnMatches ? grnMatches.sort((a,b)=>b.length-a.length)[0] : "";
 
-    // ✅ Invoice No (ANY FORMAT)
+    // Invoice (any format)
     const invoiceMatch = clean.match(/GRN INVOICE NO\s*:\s*([A-Z0-9]+)/);
     const invoice = invoiceMatch ? invoiceMatch[1] : "";
 
     if (!grn || !invoice) {
-      statusText.innerText = "❌ Full GRN or Invoice not detected. Try again.";
+      statusText.innerText = "❌ GRN or Invoice not detected. Capture again.";
       return;
     }
 
-    save(grn, invoice);
+    setTimeout(() => saveData(grn, invoice), 500); // within 5 sec total
   });
 }
 
-function save(grn, invoice) {
+// 💾 Save result
+function saveData(grn, invoice) {
   const now = new Date().toLocaleString();
 
   results.push({
@@ -134,18 +146,19 @@ function save(grn, invoice) {
   row.insertCell(2).innerText = invoice;
   row.insertCell(3).innerText = now;
 
-  statusText.innerText = "✅ Saved (Fast scan ready)";
+  statusText.innerText = "✅ Saved successfully. Ready for next capture.";
 }
 
+// ⬇️ Excel
 function downloadExcel() {
   if (results.length === 0) {
-    alert("No data");
+    alert("No data to download");
     return;
   }
   let ws = XLSX.utils.json_to_sheet(results);
   let wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "GRN Scans");
-  XLSX.writeFile(wb, "GRN_Fast_Scans.xlsx");
+  XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
+  XLSX.writeFile(wb, "GRN_Camera_Scans.xlsx");
 }
 </script>
 
