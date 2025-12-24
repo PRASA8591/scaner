@@ -14,10 +14,10 @@ body {
   text-align: center;
 }
 
-video, canvas {
+video, canvas, img {
   width: 95%;
   max-width: 420px;
-  border: 2px solid #222;
+  border: 2px solid #333;
   margin-top: 10px;
 }
 
@@ -31,7 +31,7 @@ table {
   width: 95%;
   margin: 10px auto;
   border-collapse: collapse;
-  background: #fff;
+  background: white;
 }
 
 th, td {
@@ -57,6 +57,9 @@ th {
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas" hidden></canvas>
 
+<h4>Captured Image</h4>
+<img id="preview" />
+
 <br>
 <button onclick="capture()">📸 Capture</button>
 <button onclick="exportExcel()">⬇ Excel</button>
@@ -78,6 +81,7 @@ th {
 let video = document.getElementById("video");
 let canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d");
+let preview = document.getElementById("preview");
 let tbody = document.querySelector("#table tbody");
 let index = 1;
 
@@ -90,15 +94,15 @@ navigator.mediaDevices.getUserMedia({
   }
 }).then(stream => video.srcObject = stream);
 
-/* IMAGE PREPROCESS (KEY FIX) */
+/* IMAGE PREPROCESS */
 function preprocess() {
   const img = ctx.getImageData(0,0,canvas.width,canvas.height);
   const d = img.data;
 
   for (let i = 0; i < d.length; i += 4) {
-    const gray = d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11;
-    const val = gray > 150 ? 255 : 0;
-    d[i] = d[i+1] = d[i+2] = val;
+    const g = d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11;
+    const v = g > 145 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = v;
   }
   ctx.putImageData(img,0,0);
 }
@@ -110,6 +114,9 @@ async function capture() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0);
+
+  /* SHOW IMAGE */
+  preview.src = canvas.toDataURL("image/jpeg");
 
   preprocess();
 
@@ -124,21 +131,24 @@ async function capture() {
   const { data: { text } } = await worker.recognize(canvas);
   await worker.terminate();
 
-  const clean = text
-    .replace(/\n+/g, " ")
-    .replace(/\s+/g, " ")
+  let clean = text
+    .replace(/\n+/g," ")
+    .replace(/\s+/g," ")
     .toUpperCase();
 
-  /* FULL GRN NO ONLY */
-  const grnMatch = clean.match(/GRN\s*NO\s*[:\-]?\s*(GRN\d{5,})/);
+  /* FIX OCR MISTAKES */
+  clean = clean.replace(/O/g, "0");
 
-  if (!grnMatch) {
+  /* STRONG GRN MATCH */
+  const match = clean.match(/GRN\s*NO\s*[:\-]?\s*(GRN[0-9]{5,})/);
+
+  if (!match) {
     document.getElementById("error").innerText =
       "❌ GRN No not detected. Retake photo.";
     return;
   }
 
-  addRow(grnMatch[1]);
+  addRow(match[1]);
 }
 
 /* ADD TO TABLE */
