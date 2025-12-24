@@ -10,22 +10,21 @@
 <style>
 body {
   font-family: Arial, sans-serif;
-  background: #f5f5f5;
+  background: #f4f4f4;
   text-align: center;
 }
 
 video, canvas {
   width: 95%;
   max-width: 420px;
-  border: 2px solid #333;
+  border: 2px solid #222;
   margin-top: 10px;
 }
 
 button {
-  padding: 12px 18px;
+  padding: 12px 20px;
   font-size: 16px;
   margin: 10px;
-  cursor: pointer;
 }
 
 table {
@@ -53,7 +52,7 @@ th {
 
 <body>
 
-<h2>📄 GRN Document Scanner</h2>
+<h2>📄 GRN Number Scanner</h2>
 
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas" hidden></canvas>
@@ -64,12 +63,11 @@ th {
 
 <p id="error"></p>
 
-<table id="dataTable">
+<table id="table">
 <thead>
 <tr>
 <th>#</th>
 <th>GRN No</th>
-<th>GRN Invoice No</th>
 <th>Scan Date & Time</th>
 </tr>
 </thead>
@@ -80,8 +78,8 @@ th {
 let video = document.getElementById("video");
 let canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d");
-let tableBody = document.querySelector("#dataTable tbody");
-let count = 1;
+let tbody = document.querySelector("#table tbody");
+let index = 1;
 
 /* BACK CAMERA */
 navigator.mediaDevices.getUserMedia({
@@ -92,14 +90,15 @@ navigator.mediaDevices.getUserMedia({
   }
 }).then(stream => video.srcObject = stream);
 
-/* IMAGE PREPROCESS (VERY IMPORTANT) */
+/* IMAGE PREPROCESS (KEY FIX) */
 function preprocess() {
   const img = ctx.getImageData(0,0,canvas.width,canvas.height);
   const d = img.data;
-  for (let i = 0; i < d.length; i+=4) {
-    const g = d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11;
-    const v = g > 150 ? 255 : 0;
-    d[i] = d[i+1] = d[i+2] = v;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11;
+    const val = gray > 150 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = val;
   }
   ctx.putImageData(img,0,0);
 }
@@ -110,9 +109,9 @@ async function capture() {
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  ctx.drawImage(video,0,0);
+  ctx.drawImage(video, 0, 0);
 
-  preprocess(); // FIX OCR FAILURES
+  preprocess();
 
   const worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
@@ -126,40 +125,36 @@ async function capture() {
   await worker.terminate();
 
   const clean = text
-    .replace(/\n+/g," ")
-    .replace(/\s+/g," ")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
     .toUpperCase();
 
-  /* FULL GRN NO */
-  const grn = clean.match(/GRN\s*NO\s*[:\-]?\s*(GRN\d{5,})/);
+  /* FULL GRN NO ONLY */
+  const grnMatch = clean.match(/GRN\s*NO\s*[:\-]?\s*(GRN\d{5,})/);
 
-  /* ANY INVOICE FORMAT */
-  const invoice = clean.match(/GRN\s*INVOICE\s*NO\s*[:\-]?\s*([A-Z0-9]+)/);
-
-  if (!grn || !invoice) {
+  if (!grnMatch) {
     document.getElementById("error").innerText =
-      "❌ Cannot detect GRN / Invoice. Retake photo.";
+      "❌ GRN No not detected. Retake photo.";
     return;
   }
 
-  addRow(grn[1], invoice[1]);
+  addRow(grnMatch[1]);
 }
 
 /* ADD TO TABLE */
-function addRow(grn, invoice) {
-  const row = tableBody.insertRow();
-  row.insertCell(0).innerText = count++;
+function addRow(grn) {
+  const row = tbody.insertRow();
+  row.insertCell(0).innerText = index++;
   row.insertCell(1).innerText = grn;
-  row.insertCell(2).innerText = invoice;
-  row.insertCell(3).innerText = new Date().toLocaleString();
+  row.insertCell(2).innerText = new Date().toLocaleString();
 }
 
 /* EXCEL EXPORT */
 function exportExcel() {
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(document.getElementById("dataTable"));
+  const ws = XLSX.utils.table_to_sheet(document.getElementById("table"));
   XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
-  XLSX.writeFile(wb, "grn_data.xlsx");
+  XLSX.writeFile(wb, "grn_numbers.xlsx");
 }
 </script>
 
