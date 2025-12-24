@@ -2,144 +2,164 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>GRN Camera Scanner (Fixed)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRN Scanner</title>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
-body { font-family: Arial; background:#f2f2f2; text-align:center; }
-video, canvas { width:100%; max-width:420px; border:2px solid #333; }
-button { padding:10px 18px; margin:6px; font-size:16px; }
-#status { font-weight:bold; margin:8px; }
-table { width:98%; margin:auto; border-collapse:collapse; background:#fff; }
-th, td { border:1px solid #333; padding:6px; font-size:13px; }
-.hidden { display:none; }
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f5f5;
+  text-align: center;
+}
+
+video, canvas {
+  width: 95%;
+  max-width: 420px;
+  border: 2px solid #333;
+  margin-top: 10px;
+}
+
+button {
+  padding: 12px 18px;
+  font-size: 16px;
+  margin: 10px;
+  cursor: pointer;
+}
+
+table {
+  width: 95%;
+  margin: 10px auto;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 8px;
+}
+
+th {
+  background: #eee;
+}
+
+#error {
+  color: red;
+  font-weight: bold;
+}
 </style>
 </head>
 
 <body>
 
-<h2>📸 GRN Document Scanner (FIXED)</h2>
+<h2>📄 GRN Document Scanner</h2>
 
 <video id="video" autoplay playsinline></video>
-<canvas id="canvas" class="hidden"></canvas>
+<canvas id="canvas" hidden></canvas>
 
 <br>
 <button onclick="capture()">📸 Capture</button>
-<button onclick="downloadExcel()">⬇️ Excel</button>
+<button onclick="exportExcel()">⬇ Excel</button>
 
-<div id="status"></div>
+<p id="error"></p>
 
-<table id="table">
+<table id="dataTable">
+<thead>
 <tr>
-  <th>#</th>
-  <th>GRN No</th>
-  <th>GRN Invoice No</th>
-  <th>Scan Date & Time</th>
+<th>#</th>
+<th>GRN No</th>
+<th>GRN Invoice No</th>
+<th>Scan Date & Time</th>
 </tr>
+</thead>
+<tbody></tbody>
 </table>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const statusText = document.getElementById("status");
-const table = document.getElementById("table");
-
-let results = [];
+let video = document.getElementById("video");
+let canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+let tableBody = document.querySelector("#dataTable tbody");
 let count = 1;
 
-// Start back camera
+/* BACK CAMERA */
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { exact: "environment" } }
-}).then(s => video.srcObject = s)
-.catch(() => navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
-}).then(s => video.srcObject = s));
+  video: {
+    facingMode: { exact: "environment" },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 }
+  }
+}).then(stream => video.srcObject = stream);
 
-// Capture image
-function capture() {
-  statusText.innerText = "📸 Captured… scanning document";
-  canvas.classList.remove("hidden");
+/* IMAGE PREPROCESS (VERY IMPORTANT) */
+function preprocess() {
+  const img = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i+=4) {
+    const g = d[i]*0.3 + d[i+1]*0.59 + d[i+2]*0.11;
+    const v = g > 150 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = v;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+/* CAPTURE + SCAN */
+async function capture() {
+  document.getElementById("error").innerText = "";
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
+  ctx.drawImage(video,0,0);
 
-  scan();
-}
+  preprocess(); // FIX OCR FAILURES
 
-// OCR + smart extraction
-function scan() {
-  Tesseract.recognize(
-    canvas,
-    "eng",
-    {
-      tessedit_char_whitelist:
-        "GRN0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:- ",
-      logger: () => {}
-    }
-  ).then(({ data: { text } }) => {
+  const worker = await Tesseract.createWorker();
+  await worker.loadLanguage("eng");
+  await worker.initialize("eng");
 
-    let clean = text
-      .toUpperCase()
-      .replace(/\r/g," ")
-      .replace(/\n/g," ")
-      .replace(/\s+/g," ");
-
-    console.log(clean); // debug if needed
-
-    // ✅ FULL GRN (longest)
-    const grnMatches = clean.match(/GRN\s*0*\d{4,}/g);
-    const grn = grnMatches
-      ? grnMatches.sort((a,b)=>b.length-a.length)[0].replace(/\s/g,"")
-      : "";
-
-    // ✅ INVOICE NO (any format)
-    let invoice = "";
-    const invoiceMatch = clean.match(
-      /GRN\s*INVOICE\s*NO\s*[:\-]?\s*([A-Z0-9]+)/);
-    if (invoiceMatch) invoice = invoiceMatch[1];
-
-    if (!grn || !invoice) {
-      statusText.innerText =
-        "❌ Cannot detect GRN / Invoice. Retake photo.";
-      return;
-    }
-
-    setTimeout(() => save(grn, invoice), 500);
-  });
-}
-
-// Save row
-function save(grn, invoice) {
-  const time = new Date().toLocaleString();
-
-  results.push({
-    No: count,
-    GRN: grn,
-    Invoice: invoice,
-    ScanTime: time
+  await worker.setParameters({
+    tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:- "
   });
 
-  let r = table.insertRow();
-  r.insertCell(0).innerText = count++;
-  r.insertCell(1).innerText = grn;
-  r.insertCell(2).innerText = invoice;
-  r.insertCell(3).innerText = time;
+  const { data: { text } } = await worker.recognize(canvas);
+  await worker.terminate();
 
-  statusText.innerText = "✅ Saved successfully (ready for next)";
+  const clean = text
+    .replace(/\n+/g," ")
+    .replace(/\s+/g," ")
+    .toUpperCase();
+
+  /* FULL GRN NO */
+  const grn = clean.match(/GRN\s*NO\s*[:\-]?\s*(GRN\d{5,})/);
+
+  /* ANY INVOICE FORMAT */
+  const invoice = clean.match(/GRN\s*INVOICE\s*NO\s*[:\-]?\s*([A-Z0-9]+)/);
+
+  if (!grn || !invoice) {
+    document.getElementById("error").innerText =
+      "❌ Cannot detect GRN / Invoice. Retake photo.";
+    return;
+  }
+
+  addRow(grn[1], invoice[1]);
 }
 
-// Excel
-function downloadExcel() {
-  if (!results.length) return alert("No data");
+/* ADD TO TABLE */
+function addRow(grn, invoice) {
+  const row = tableBody.insertRow();
+  row.insertCell(0).innerText = count++;
+  row.insertCell(1).innerText = grn;
+  row.insertCell(2).innerText = invoice;
+  row.insertCell(3).innerText = new Date().toLocaleString();
+}
 
-  let ws = XLSX.utils.json_to_sheet(results);
-  let wb = XLSX.utils.book_new();
+/* EXCEL EXPORT */
+function exportExcel() {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(document.getElementById("dataTable"));
   XLSX.utils.book_append_sheet(wb, ws, "GRN Data");
-  XLSX.writeFile(wb, "GRN_Scans.xlsx");
+  XLSX.writeFile(wb, "grn_data.xlsx");
 }
 </script>
 
